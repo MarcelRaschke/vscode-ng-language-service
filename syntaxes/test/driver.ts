@@ -19,7 +19,7 @@ interface TestCase {
   testFile: string;
 }
 
-const dummyGrammarDir = path.join(__dirname, 'dummy');
+const dummyGrammarDir = 'syntaxes/test/dummy';
 const DUMMY_GRAMMARS =
     fs.readdirSync(dummyGrammarDir).map((file: string) => path.join(dummyGrammarDir, file));
 
@@ -47,7 +47,7 @@ async function snapshotTest({scopeName, grammarFiles, testFile}: TestCase): Prom
   return spawn('yarn', options, {stdio: 'inherit' /* use parent process IO */}).catch(code => code);
 }
 
-describe('snapshot tests', async () => {
+describe('snapshot tests', () => {
   for (let tc of SNAPSHOT_TEST_CASES) {
     it(`should work for ${tc.name}`, async () => {
       const ec = await snapshotTest(tc);

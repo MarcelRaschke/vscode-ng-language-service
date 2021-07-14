@@ -7,40 +7,13 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 
-const MIN_TS_VERSION = '3.9';
-const MIN_NG_VERSION = '10.0';
+import {NodeModule, resolve, Version} from '../common/resolver';
 
-/**
- * Represents a valid node module that has been successfully resolved.
- */
-interface NodeModule {
-  name: string;
-  resolvedPath: string;
-  version: Version;
-}
-
-function resolve(packageName: string, location: string, rootPackage?: string): NodeModule|
-    undefined {
-  rootPackage = rootPackage || packageName;
-  try {
-    const packageJsonPath = require.resolve(`${rootPackage}/package.json`, {
-      paths: [location],
-    });
-    // Do not use require() to read JSON files since it's a potential security
-    // vulnerability.
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    const resolvedPath = require.resolve(packageName, {
-      paths: [location],
-    });
-    return {
-      name: packageName,
-      resolvedPath,
-      version: new Version(packageJson.version),
-    };
-  } catch {
-  }
-}
+const MIN_TS_VERSION = '4.2';
+const MIN_NG_VERSION = '12.0';
+const TSSERVERLIB = 'typescript/lib/tsserverlibrary';
 
 /**
  * Resolve the node module with the specified `packageName` that satisfies
@@ -74,77 +47,52 @@ function resolveWithMinVersion(
  * @param probeLocations
  */
 export function resolveTsServer(probeLocations: string[]): NodeModule {
-  const tsserver = 'typescript/lib/tsserverlibrary';
-  return resolveWithMinVersion(tsserver, MIN_TS_VERSION, probeLocations, 'typescript');
+  if (probeLocations.length > 0) {
+    // The first probe location is `typescript.tsdk` if it is specified.
+    const resolvedFromTsdk = resolveTsServerFromTsdk(probeLocations[0]);
+    if (resolvedFromTsdk !== undefined) {
+      return resolvedFromTsdk;
+    }
+  }
+  return resolveWithMinVersion(TSSERVERLIB, MIN_TS_VERSION, probeLocations, 'typescript');
+}
+
+function resolveTsServerFromTsdk(tsdk: string): NodeModule|undefined {
+  // `tsdk` is the folder path to the tsserver and lib*.d.ts files under a
+  // TypeScript install, for example
+  // - /google/src/head/depot/google3/third_party/javascript/node_modules/typescript/stable/lib
+  if (!path.isAbsolute(tsdk)) {
+    return undefined;
+  }
+  const tsserverlib = path.join(tsdk, 'tsserverlibrary.js');
+  if (!fs.existsSync(tsserverlib)) {
+    return undefined;
+  }
+  const packageJson = path.resolve(tsserverlib, '../../package.json');
+  if (!fs.existsSync(packageJson)) {
+    return undefined;
+  }
+  try {
+    const json = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+    return {
+      name: TSSERVERLIB,
+      resolvedPath: tsserverlib,
+      version: new Version(json.version),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
  * Resolve `@angular/language-service` from the given locations.
  * @param probeLocations locations from which resolution is attempted
- * @param ivy true if Ivy language service is requested
  */
-export function resolveNgLangSvc(probeLocations: string[], ivy: boolean): NodeModule {
-  const nglangsvc = '@angular/language-service';
-  const packageName = ivy ? `${nglangsvc}/bundles/ivy` : nglangsvc;
-  return resolveWithMinVersion(packageName, MIN_NG_VERSION, probeLocations, nglangsvc);
+export function resolveNgLangSvc(probeLocations: string[]): NodeModule {
+  const ngls = '@angular/language-service';
+  return resolveWithMinVersion(ngls, MIN_NG_VERSION, probeLocations, ngls);
 }
 
-/**
- * Converts the specified string `a` to non-negative integer.
- * Returns -1 if the result is NaN.
- * @param a
- */
-function parseNonNegativeInt(a: string): number {
-  // parseInt() will try to convert as many as possible leading characters that
-  // are digits. This means a string like "123abc" will be converted to 123.
-  // For our use case, this is sufficient.
-  const i = parseInt(a, 10 /* radix */);
-  return isNaN(i) ? -1 : i;
-}
-
-export class Version {
-  readonly major: number;
-  readonly minor: number;
-  readonly patch: number;
-
-  constructor(private readonly versionStr: string) {
-    const [major, minor, patch] = Version.parseVersionStr(versionStr);
-    this.major = major;
-    this.minor = minor;
-    this.patch = patch;
-  }
-
-  greaterThanOrEqual(other: Version): boolean {
-    if (this.major < other.major) {
-      return false;
-    }
-    if (this.major > other.major) {
-      return true;
-    }
-    if (this.minor < other.minor) {
-      return false;
-    }
-    if (this.minor > other.minor) {
-      return true;
-    }
-    return this.patch >= other.patch;
-  }
-
-  toString(): string {
-    return this.versionStr;
-  }
-
-  /**
-   * Converts the specified `versionStr` to its number constituents. Invalid
-   * number value is represented as negative number.
-   * @param versionStr
-   */
-  static parseVersionStr(versionStr: string): [number, number, number] {
-    const [major, minor, patch] = versionStr.split('.').map(parseNonNegativeInt);
-    return [
-      major === undefined ? 0 : major,
-      minor === undefined ? 0 : minor,
-      patch === undefined ? 0 : patch,
-    ];
-  }
+export function resolveNgcc(directory: string): NodeModule|undefined {
+  return resolve('@angular/compiler-cli/ngcc/main-ngcc.js', directory, '@angular/compiler-cli');
 }

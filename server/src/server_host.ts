@@ -8,6 +8,10 @@
 
 import * as ts from 'typescript/lib/tsserverlibrary';
 
+const NOOP_WATCHER: ts.FileWatcher = {
+  close() {},
+};
+
 /**
  * `ServerHost` is a wrapper around `ts.sys` for the Node system. In Node, all
  * optional methods of `ts.System` are implemented.
@@ -19,7 +23,7 @@ export class ServerHost implements ts.server.ServerHost {
   readonly newLine: string;
   readonly useCaseSensitiveFileNames: boolean;
 
-  constructor() {
+  constructor(readonly isG3: boolean) {
     this.args = ts.sys.args;
     this.newLine = ts.sys.newLine;
     this.useCaseSensitiveFileNames = ts.sys.useCaseSensitiveFileNames;
@@ -49,14 +53,19 @@ export class ServerHost implements ts.server.ServerHost {
    * @pollingInterval - this parameter is used in polling-based watchers and
    * ignored in watchers that use native OS file watching
    */
-  watchFile(path: string, callback: ts.FileWatcherCallback, pollingInterval?: number):
-      ts.FileWatcher {
-    return ts.sys.watchFile!(path, callback, pollingInterval);
+  watchFile(
+      path: string, callback: ts.FileWatcherCallback, pollingInterval?: number,
+      options?: ts.WatchOptions): ts.FileWatcher {
+    return ts.sys.watchFile!(path, callback, pollingInterval, options);
   }
 
-  watchDirectory(path: string, callback: ts.DirectoryWatcherCallback, recursive?: boolean):
-      ts.FileWatcher {
-    return ts.sys.watchDirectory!(path, callback, recursive);
+  watchDirectory(
+      path: string, callback: ts.DirectoryWatcherCallback, recursive?: boolean,
+      options?: ts.WatchOptions): ts.FileWatcher {
+    if (this.isG3 && path.startsWith('/google/src')) {
+      return NOOP_WATCHER;
+    }
+    return ts.sys.watchDirectory!(path, callback, recursive, options);
   }
 
   resolvePath(path: string): string {
@@ -64,6 +73,14 @@ export class ServerHost implements ts.server.ServerHost {
   }
 
   fileExists(path: string): boolean {
+    // When a project is reloaded (due to changes in node_modules for example),
+    // the typecheck files ought to be retained. However, if they do not exist
+    // on disk, tsserver will remove them from project. See
+    // https://github.com/microsoft/TypeScript/blob/3c32f6e154ead6749b76ec9c19cbfdd2acad97d6/src/server/editorServices.ts#L2188-L2193
+    // To fix this, we fake the existence of the typecheck files.
+    if (path.endsWith('.ngtypecheck.ts')) {
+      return true;
+    }
     return ts.sys.fileExists(path);
   }
 
@@ -161,7 +178,13 @@ export class ServerHost implements ts.server.ServerHost {
     return clearImmediate(timeoutId);
   }
 
-  require(initialPath: string, moduleName: string) {
+  require(initialPath: string, moduleName: string): ts.server.RequireResult {
+    if (moduleName !== '@angular/language-service') {
+      return {
+        module: undefined,
+        error: new Error(`Angular server will not load plugin '${moduleName}'.`),
+      };
+    }
     try {
       const modulePath = require.resolve(moduleName, {
         paths: [initialPath],

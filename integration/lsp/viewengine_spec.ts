@@ -8,7 +8,10 @@
 
 import {MessageConnection} from 'vscode-jsonrpc';
 import * as lsp from 'vscode-languageserver-protocol';
-import {APP_COMPONENT, createConnection, FOO_TEMPLATE, initializeServer, openTextDocument} from './test_utils';
+
+import {APP_COMPONENT, FOO_TEMPLATE} from '../test_constants';
+
+import {createConnection, initializeServer, openTextDocument} from './test_utils';
 
 describe('Angular language server', () => {
   jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000; /* 10 seconds */
@@ -62,6 +65,8 @@ describe('Angular language server', () => {
         },
         newText: 'charAt()',
       },
+      // The 'data' field is only meaningful in Ivy mode.
+      data: jasmine.anything(),
     });
   });
 
@@ -91,7 +96,7 @@ describe('Angular language server', () => {
     client.sendNotification(lsp.DidOpenTextDocumentNotification.type, {
       textDocument: {
         uri: `file://${FOO_TEMPLATE}`,
-        languageId: 'typescript',
+        languageId: 'html',
         version: 1,
         text: `{{ doesnotexist }}`,
       },
@@ -114,7 +119,7 @@ describe('initialization', () => {
     });
     client.listen();
     const response = await initializeServer(client);
-    expect(response).toEqual({
+    expect(response).toEqual(jasmine.objectContaining({
       capabilities: {
         textDocumentSync: 2,
         completionProvider: {
@@ -122,15 +127,17 @@ describe('initialization', () => {
           triggerCharacters: ['<', '.', '*', '[', '(', '$', '|'],
         },
         definitionProvider: true,
-        typeDefinitionProvider: true,
+        typeDefinitionProvider: false,
         hoverProvider: true,
+        referencesProvider: false,
+        renameProvider: false,
         workspace: {
           workspaceFolders: {
             supported: true,
           },
         },
       },
-    });
+    }));
     client.dispose();
   });
 });

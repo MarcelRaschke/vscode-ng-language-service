@@ -2,18 +2,18 @@
 .vscode-test
 .DS_Store
 node_modules
-client/node_modules/
-client/out/
-common/out
 server/node_modules/
-server/out
-integration/out
 dist/
 **/.idea/
 **/tsconfig.tsbuildinfo
 .vscode/settings.json
 .vimrc
 .nvimrc
-syntaxes/out
-syntaxes/test/*.js
-syntaxes/test/*.map
+*.swo
+*.swp
+
+
+# Ignore files log and local only files related to ng-dev
+*.log
+.ng-dev.user*
+.husky/_

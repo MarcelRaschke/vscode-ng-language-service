@@ -1,7 +1,11 @@
-import { Component } from '@angular/core';
+import {Component, EventEmitter, Input, Output} from '@angular/core';
 
 @Component({
   selector: 'my-app',
   template: `<h1>Hello {{name}}</h1>`,
 })
-export class AppComponent  { name = 'Angular'; }
+export class AppComponent {
+  name = 'Angular';
+  @Input() appInput = '';
+  @Output() appOutput = new EventEmitter<string>();
+}

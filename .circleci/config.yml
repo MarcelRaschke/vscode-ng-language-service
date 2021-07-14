@@ -1,6 +1,6 @@
 version: 2.1
 orbs:
-  node: circleci/node@4.1.0
+  node: circleci/node@4.4.0
 jobs:
   build-and-test:
     executor:
@@ -9,6 +9,12 @@ jobs:
     steps:
       - checkout
       - node/install-packages:
+          pkg-manager: yarn
+      - node/install-packages:
+          app-dir: integration/project
+          pkg-manager: yarn
+      - node/install-packages:
+          app-dir: integration/workspace
           pkg-manager: yarn
       - run: scripts/lint.sh
       - run: scripts/format.sh

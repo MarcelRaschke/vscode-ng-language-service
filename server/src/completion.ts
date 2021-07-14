@@ -9,7 +9,7 @@
 import * as ts from 'typescript/lib/tsserverlibrary';
 import * as lsp from 'vscode-languageserver';
 
-import {tsTextSpanToLspRange} from './utils';
+import {lspPositionToTsPosition, tsTextSpanToLspRange} from './utils';
 
 // TODO: Move this to `@angular/language-service`.
 enum CompletionKind {
@@ -17,7 +17,9 @@ enum CompletionKind {
   htmlAttribute = 'html attribute',
   property = 'property',
   component = 'component',
+  directive = 'directive',
   element = 'element',
+  event = 'event',
   key = 'key',
   method = 'method',
   pipe = 'pipe',
@@ -25,6 +27,42 @@ enum CompletionKind {
   reference = 'reference',
   variable = 'variable',
   entity = 'entity',
+}
+
+/**
+ * Information about the origin of an `lsp.CompletionItem`, which is stored in the
+ * `lsp.CompletionItem.data` property.
+ *
+ * On future requests for details about a completion item, this information allows the language
+ * service to determine the context for the original completion request, in order to return more
+ * detailed results.
+ */
+export interface NgCompletionOriginData {
+  /**
+   * Used to validate the type of `lsp.CompletionItem.data` is correct, since that field is type
+   * `any`.
+   */
+  kind: 'ngCompletionOriginData';
+
+  filePath: string;
+  position: lsp.Position;
+}
+
+/**
+ * Extract `NgCompletionOriginData` from an `lsp.CompletionItem` if present.
+ */
+export function readNgCompletionData(item: lsp.CompletionItem): NgCompletionOriginData|null {
+  if (item.data === undefined) {
+    return null;
+  }
+
+  // Validate that `item.data.kind` is actually the right tag, and narrow its type in the process.
+  const data: NgCompletionOriginData|{kind?: never} = item.data;
+  if (data.kind !== 'ngCompletionOriginData') {
+    return null;
+  }
+
+  return data;
 }
 
 /**
@@ -36,7 +74,9 @@ function ngCompletionKindToLspCompletionItemKind(kind: CompletionKind): lsp.Comp
     case CompletionKind.attribute:
     case CompletionKind.htmlAttribute:
     case CompletionKind.property:
+    case CompletionKind.event:
       return lsp.CompletionItemKind.Property;
+    case CompletionKind.directive:
     case CompletionKind.component:
     case CompletionKind.element:
     case CompletionKind.key:
@@ -78,8 +118,20 @@ export function tsCompletionEntryToLspCompletionItem(
   // from 'entry.name'. For example, a method name could be 'greet', but the
   // insertText is 'greet()'.
   const insertText = entry.insertText || entry.name;
-  item.textEdit = entry.replacementSpan ?
-      lsp.TextEdit.replace(tsTextSpanToLspRange(scriptInfo, entry.replacementSpan), insertText) :
-      lsp.TextEdit.insert(position, insertText);
+  if (entry.replacementSpan) {
+    const replacementRange = tsTextSpanToLspRange(scriptInfo, entry.replacementSpan);
+    const tsPosition = lspPositionToTsPosition(scriptInfo, position);
+    const insertLength = tsPosition - entry.replacementSpan.start;
+    const insertionRange =
+        tsTextSpanToLspRange(scriptInfo, {...entry.replacementSpan, length: insertLength});
+    item.textEdit = lsp.InsertReplaceEdit.create(insertText, insertionRange, replacementRange);
+  } else {
+    item.textEdit = lsp.TextEdit.insert(position, insertText);
+  }
+  item.data = {
+    kind: 'ngCompletionOriginData',
+    filePath: scriptInfo.fileName,
+    position,
+  } as NgCompletionOriginData;
   return item;
 }

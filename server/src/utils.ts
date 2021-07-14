@@ -10,6 +10,8 @@ import * as ts from 'typescript/lib/tsserverlibrary';
 import * as lsp from 'vscode-languageserver';
 import {URI} from 'vscode-uri';
 
+export const isDebugMode = process.env['NG_DEBUG'] === 'true';
+
 enum Scheme {
   File = 'file',
 }
@@ -33,7 +35,7 @@ export function uriToFilePath(uri: string): string {
  * Converts the specified `filePath` to a proper URI.
  * @param filePath
  */
-export function filePathToUri(filePath: string): string {
+export function filePathToUri(filePath: string): lsp.DocumentUri {
   return URI.file(filePath).toString();
 }
 
@@ -73,4 +75,42 @@ export function lspRangeToTsPositions(
   const start = lspPositionToTsPosition(scriptInfo, range.start);
   const end = lspPositionToTsPosition(scriptInfo, range.end);
   return [start, end];
+}
+
+export function isConfiguredProject(project: ts.server.Project):
+    project is ts.server.ConfiguredProject {
+  return project.projectKind === ts.server.ProjectKind.Configured;
+}
+
+/**
+ * A class that tracks items in most recently used order.
+ */
+export class MruTracker {
+  private readonly set = new Set<string>();
+
+  update(item: string) {
+    if (this.set.has(item)) {
+      this.set.delete(item);
+    }
+    this.set.add(item);
+  }
+
+  delete(item: string) {
+    this.set.delete(item);
+  }
+
+  /**
+   * Returns all items sorted by most recently used.
+   */
+  getAll(): string[] {
+    // Javascript Set maintains insertion order, see
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set
+    // Since items are sorted from least recently used to most recently used,
+    // we reverse the result.
+    return [...this.set].reverse();
+  }
+}
+
+export function tsDisplayPartsToText(parts: ts.SymbolDisplayPart[]): string {
+  return parts.map(dp => dp.text).join('');
 }

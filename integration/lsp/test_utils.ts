@@ -8,15 +8,10 @@
 
 import {fork} from 'child_process';
 import * as fs from 'fs';
-import {resolve} from 'path';
-import {createMessageConnection, IPCMessageReader, IPCMessageWriter, MessageConnection} from 'vscode-jsonrpc';
+import {createMessageConnection, IPCMessageReader, IPCMessageWriter, MessageConnection} from 'vscode-jsonrpc/node';
 import * as lsp from 'vscode-languageserver-protocol';
 
-const SERVER_PATH = resolve(__dirname, '../../../dist/server/index.js');
-const PACKAGE_ROOT = resolve(__dirname, '../../..');
-const PROJECT_PATH = resolve(__dirname, '../../project');
-export const APP_COMPONENT = `${PROJECT_PATH}/app/app.component.ts`;
-export const FOO_TEMPLATE = `${PROJECT_PATH}/app/foo.component.html`;
+import {PROJECT_PATH, SERVER_PATH} from '../test_constants';
 
 export interface ServerOptions {
   ivy: boolean;
@@ -26,26 +21,31 @@ export function createConnection(serverOptions: ServerOptions): MessageConnectio
   const argv: string[] = [
     '--node-ipc',
     '--tsProbeLocations',
-    PACKAGE_ROOT,
-    '--ngProbeLocations',
     SERVER_PATH,
+    '--ngProbeLocations',
+    [SERVER_PATH, PROJECT_PATH].join(','),
   ];
-  if (serverOptions.ivy) {
-    argv.push('--experimental-ivy');
+  if (!serverOptions.ivy) {
+    argv.push('--viewEngine');
   }
   const server = fork(SERVER_PATH, argv, {
     cwd: PROJECT_PATH,
-    env: {
-      TSC_NONPOLLING_WATCHER: 'true',
-    },
     // uncomment to debug server process
-    // execArgv: ['--inspect-brk=9229']
+    // execArgv: ['--inspect-brk=9330']
   });
-
-  return createMessageConnection(
+  server.on('close', (code: number) => {
+    if (code !== null && code !== 0) {
+      throw new Error(`Server exited with code: ${code}`);
+    }
+  });
+  const connection = createMessageConnection(
       new IPCMessageReader(server),
       new IPCMessageWriter(server),
   );
+  connection.onDispose(() => {
+    server.kill();
+  });
+  return connection;
 }
 
 export function initializeServer(client: MessageConnection): Promise<lsp.InitializeResult> {
@@ -66,13 +66,38 @@ export function initializeServer(client: MessageConnection): Promise<lsp.Initial
   });
 }
 
-export function openTextDocument(client: MessageConnection, filePath: string) {
+export function openTextDocument(client: MessageConnection, filePath: string, newText?: string) {
+  let languageId = 'unknown';
+  if (filePath.endsWith('ts')) {
+    languageId = 'typescript';
+  } else if (filePath.endsWith('html')) {
+    languageId = 'html';
+  }
   client.sendNotification(lsp.DidOpenTextDocumentNotification.type, {
     textDocument: {
       uri: `file://${filePath}`,
-      languageId: 'typescript',
+      languageId,
       version: 1,
-      text: fs.readFileSync(filePath, 'utf-8'),
+      text: newText ?? fs.readFileSync(filePath, 'utf-8'),
     },
   });
+}
+
+export function createTracer(): lsp.Tracer {
+  return {
+    log(messageOrDataObject: string|any, data?: string) {
+      if (typeof messageOrDataObject === 'string') {
+        const message = messageOrDataObject;
+        console.log(`[Trace - ${(new Date().toLocaleTimeString())}] ${message}`);
+        if (data) {
+          console.log(data);
+        }
+      } else {
+        const dataObject = messageOrDataObject;
+        console.log(
+            `[Trace - ${(new Date().toLocaleTimeString())}] ` +
+            JSON.stringify(dataObject, null, 2));
+      }
+    },
+  };
 }
